@@ -290,7 +290,7 @@ function getCode(){try{return localStorage.getItem(CODE_KEY)||""}catch(e){return
 function getRole(){try{const r=localStorage.getItem(ROLE_KEY);return r==="me"||r==="her"?r:""}catch(e){return ""}}
 function paintRole(){document.querySelectorAll("#rolePick button").forEach(b=>b.classList.toggle("on",b.dataset.r===pickRole))}
 const roleName=r=>r==="me"?"나":"여자친구";
-function askCode(){$("codeErr").textContent="";$("codeInput").value=getCode();pickRole=getRole();paintRole();$("codeSheet").hidden=false;setTimeout(()=>$("codeInput").focus(),50)}
+function askCode(){$("codeErr").textContent="";$("codeInput").value="";$("codeInput").placeholder=getCode()?"비워두면 지금 코드 그대로 써":"예: 우리첫카페0412곰돌이";pickRole=getRole();paintRole();$("codeSheet").hidden=false;setTimeout(()=>$("codeInput").focus(),50)}
 async function connect(){
   if(!DB_URL)return;
   const code=getCode(),role=getRole();
@@ -395,7 +395,7 @@ if(!DB_URL&&!Object.keys(S.sel).length){
   .forEach(([t,n,m,h])=>S.sel[k(t,n)]={me:!!m,her:!!h});
 }
 $("codeForm").onsubmit=e=>{
-  e.preventDefault();const v=$("codeInput").value.trim();
+  e.preventDefault();const v=$("codeInput").value.trim()||getCode();
   if(v.length<4){$("codeErr").textContent="코드는 4글자 이상으로 정해줘!";return}
   if(!pickRole){$("codeErr").textContent="이 폰이 누구 건지 골라줘!";return}
   try{localStorage.setItem(CODE_KEY,v);localStorage.setItem(ROLE_KEY,pickRole)}catch(err){}
