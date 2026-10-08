@@ -111,6 +111,14 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--both);outline-o
 .codebox{display:flex;flex-direction:column;gap:12px}
 .codebox p{margin:0;color:var(--muted);font-size:14px}
 .codebox input{font:inherit;font-size:18px;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+.rolepick{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.rolepick button{border:1.5px solid var(--line);background:var(--surface);border-radius:12px;padding:12px;font-family:var(--display);font-size:17px;display:flex;align-items:center;justify-content:center;gap:8px}
+.rolepick button .dot{width:10px;height:10px;border-radius:50%}
+.rolepick button[data-r="me"] .dot{background:var(--me)}
+.rolepick button[data-r="her"] .dot{background:var(--her)}
+.rolepick button.on[data-r="me"]{border-color:var(--me);background:var(--me-soft)}
+.rolepick button.on[data-r="her"]{border-color:var(--her);background:var(--her-soft)}
+.codebox h3{font-size:14px;color:var(--ink);margin:4px 0 0;font-weight:700}
 .codebox .err{color:var(--her);font-size:13px;min-height:1em}
 .reset{align-self:flex-start;border:0;background:none;color:var(--muted);font-size:13px;text-decoration:underline;padding:0}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -123,7 +131,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--both);outline-o
   <header>
     <h1>오늘 데이트, 뭐 할까?</h1>
     <p class="sub">끌리는 거 골라봐!</p>
-    <p class="sync" id="sync" hidden><i></i><span id="syncTxt"></span><button id="codeChange" type="button" hidden>코드 바꾸기</button></p>
+    <p class="sync" id="sync" hidden><i></i><span id="syncTxt"></span><button id="codeChange" type="button" hidden>설정 바꾸기</button></p>
   </header>
 
   <div class="who" role="tablist" aria-label="고르는 사람">
@@ -171,9 +179,14 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--both);outline-o
 
 <div class="sheet" id="codeSheet" hidden>
   <form class="panel codebox" id="codeForm" role="dialog" aria-label="커플 코드">
-    <h2>커플 코드 입력</h2>
+    <h2>커플 연결하기</h2>
     <p>둘이 똑같은 코드를 넣어야 서로 연결돼. 둘만 아는 걸로 정해줘! 처음 한 번만 넣으면 돼.</p>
     <input id="codeInput" placeholder="예: 0412우리둘" autocomplete="off" maxlength="40">
+    <h3>이 폰은 누구 거야?</h3>
+    <div class="rolepick" id="rolePick">
+      <button type="button" data-r="me"><span class="dot"></span>나</button>
+      <button type="button" data-r="her"><span class="dot"></span>여자친구</button>
+    </div>
     <span class="err" id="codeErr"></span>
     <div class="row"><button class="cta" type="submit">연결하기</button><button class="ghost" type="button" id="codeLater">나중에</button></div>
   </form>
@@ -205,7 +218,9 @@ const matches=t=>items(t).filter(i=>{const s=sel(t,i.n);return s.me&&s.her}).map
 
 function render(){
   document.querySelectorAll(".who button").forEach(b=>b.classList.toggle("on",b.dataset.p===S.who));
-  $("hint").textContent=S.who==="me"?"내 차례!":"너 차례! 끌리는 거 다 눌러도 돼~";
+  $("hint").textContent=ROOT
+    ?(S.who==="me"?"초록은 나, 분홍은 너, 보라는 둘 다!":"분홍은 나, 초록은 너, 보라는 둘 다!")
+    :(S.who==="me"?"내 차례!":"너 차례! 끌리는 거 다 눌러도 돼~");
   document.querySelectorAll(".tabs button").forEach(b=>b.classList.toggle("on",b.dataset.t===S.tab));
   ["play","food"].forEach(t=>{const m=matches(t).length;$("n-"+t).textContent=m?"♥"+m:""});
   const extra=S.custom[S.tab].length?["추가함"]:[];
@@ -239,7 +254,8 @@ function render(){
   save();
 }
 /* ---------- 연동 (Firebase Realtime Database REST) ---------- */
-const CODE_KEY="date-menu-code";
+const CODE_KEY="date-menu-code",ROLE_KEY="date-menu-role";
+let pickRole="";
 let ROOT="",es=null;
 async function roomPath(code){
   const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode("date-menu:"+code.trim()));
@@ -271,13 +287,17 @@ function fromMirror(){
   render();if(!$("sheet").hidden)renderSheet();
 }
 function getCode(){try{return localStorage.getItem(CODE_KEY)||""}catch(e){return ""}}
-function askCode(){$("codeErr").textContent="";$("codeInput").value=getCode();$("codeSheet").hidden=false;setTimeout(()=>$("codeInput").focus(),50)}
+function getRole(){try{const r=localStorage.getItem(ROLE_KEY);return r==="me"||r==="her"?r:""}catch(e){return ""}}
+function paintRole(){document.querySelectorAll("#rolePick button").forEach(b=>b.classList.toggle("on",b.dataset.r===pickRole))}
+const roleName=r=>r==="me"?"나":"여자친구";
+function askCode(){$("codeErr").textContent="";$("codeInput").value=getCode();pickRole=getRole();paintRole();$("codeSheet").hidden=false;setTimeout(()=>$("codeInput").focus(),50)}
 async function connect(){
   if(!DB_URL)return;
-  const code=getCode();
+  const code=getCode(),role=getRole();
   $("codeChange").hidden=false;
-  if(!code){setSync("wait","아직 연결 안 됨 (이 폰에만 저장)");askCode();return}
+  if(!code||!role){setSync("wait","아직 연결 안 됨 (이 폰에만 저장)");askCode();return}
   if(es)es.close();
+  S.who=role;document.querySelector(".who").hidden=true;render();
   ROOT=DB_URL.replace(/\/+$/,"")+"/date/rooms/"+await roomPath(code);
   mirror={};
   setSync("wait","연결 중…");
@@ -285,7 +305,7 @@ async function connect(){
   const onMsg=merge=>e=>{try{const d=JSON.parse(e.data);
     if(merge)Object.entries(d.data||{}).forEach(([k2,v])=>{mirror=applyAt(mirror,d.path.replace(/\/$/,"")+"/"+k2,v,false)});
     else mirror=applyAt(mirror,d.path,d.data,false);
-    fromMirror();setSync("on","같이 연결됨")}catch(err){}};
+    fromMirror();setSync("on","같이 연결됨 · 이 폰은 "+roleName(getRole()))}catch(err){}};
   es.addEventListener("put",onMsg(false));
   es.addEventListener("patch",onMsg(true));
   es.onerror=()=>setSync("wait","연결이 끊겼어, 다시 연결하는 중…");
@@ -376,12 +396,14 @@ if(!DB_URL&&!Object.keys(S.sel).length){
 }
 $("codeForm").onsubmit=e=>{
   e.preventDefault();const v=$("codeInput").value.trim();
-  if(v.length<4){$("codeErr").textContent="4글자 이상으로 정해줘!";return}
-  try{localStorage.setItem(CODE_KEY,v)}catch(err){}
+  if(v.length<4){$("codeErr").textContent="코드는 4글자 이상으로 정해줘!";return}
+  if(!pickRole){$("codeErr").textContent="이 폰이 누구 건지 골라줘!";return}
+  try{localStorage.setItem(CODE_KEY,v);localStorage.setItem(ROLE_KEY,pickRole)}catch(err){}
   $("codeSheet").hidden=true;connect();
 };
 $("codeLater").onclick=()=>{$("codeSheet").hidden=true};
 $("codeChange").onclick=askCode;
+$("rolePick").onclick=e=>{const b=e.target.closest("button");if(b){pickRole=b.dataset.r;paintRole()}};
 render();
 connect();
 </script>
