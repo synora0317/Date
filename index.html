@@ -181,7 +181,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--both);outline-o
   <form class="panel codebox" id="codeForm" role="dialog" aria-label="커플 코드">
     <h2>커플 연결하기</h2>
     <p>둘이 똑같은 코드를 넣어야 서로 연결돼. 둘만 아는 걸로 정해줘! 처음 한 번만 넣으면 돼.</p>
-    <input id="codeInput" placeholder="예: 0412우리둘" autocomplete="off" maxlength="40">
+    <input id="codeInput" placeholder="예: 0412우리둘" autocomplete="off" maxlength="60" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false">
     <h3>이 폰은 누구 거야?</h3>
     <div class="rolepick" id="rolePick">
       <button type="button" data-r="me"><span class="dot"></span>나</button>
@@ -202,7 +202,7 @@ const BASE={
 const KEY="date-menu-v1";
 let S={who:"me",tab:"play",cat:"전체",ftype:"전체",fcui:"전체",custom:{play:[],food:[]},sel:{},final:{play:null,food:null}};
 try{const s=JSON.parse(localStorage.getItem(KEY)||"null");if(s)S=Object.assign(S,s)}catch(e){}
-const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}};
+const save=()=>{try{const o=Object.assign({},S);if(typeof ROOT!=="undefined"&&ROOT){delete o.sel;delete o.custom;delete o.final}localStorage.setItem(KEY,JSON.stringify(o))}catch(e){}};
 const $=id=>document.getElementById(id);
 const items=t=>[...BASE[t].items.map(([n,c,ty])=>({n,c,ty})),...S.custom[t].map(n=>({n,c:"추가함",ty:"추가함",x:1}))];
 const chipRow=(label,list,cur,attr)=>`<div class="crow">${label?`<span class="clab">${label}</span>`:""}${list.map(c=>`<button data-${attr}="${c}" class="${c===cur?"on":""}">${c}</button>`).join("")}</div>`;
@@ -254,15 +254,18 @@ function render(){
   save();
 }
 /* ---------- 연동 (Firebase Realtime Database REST) ---------- */
-const CODE_KEY="date-menu-code",ROLE_KEY="date-menu-role";
+const OLD_CODE_KEY="date-menu-code",ROOM_KEY="date-menu-room",ROLE_KEY="date-menu-role";
+try{localStorage.removeItem(OLD_CODE_KEY)}catch(e){} // 예전 버전이 저장한 코드 원문은 지워요
 let pickRole="";
 let ROOT="",es=null;
+// 코드 원문은 저장하지도, 보내지도 않아요. 일부러 느린 변환(PBKDF2 30만 번)으로 방 이름만 만들어요.
 async function roomPath(code){
-  const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode("date-menu:"+code.trim()));
-  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("").slice(0,40);
+  const key=await crypto.subtle.importKey("raw",new TextEncoder().encode(code.normalize("NFC")),"PBKDF2",false,["deriveBits"]);
+  const bits=await crypto.subtle.deriveBits({name:"PBKDF2",hash:"SHA-256",salt:new TextEncoder().encode("couple-date-menu/room/v2"),iterations:300000},key,256);
+  return [...new Uint8Array(bits)].map(b=>b.toString(16).padStart(2,"0")).join("");
 }
 const enc=s=>encodeURIComponent(s).replace(/\./g,"%2E");
-const dec=s=>decodeURIComponent(s);
+const dec=s=>{try{return decodeURIComponent(s)}catch(e){return s}};
 let mirror={};
 function setSync(state,txt){const el=$("sync");el.hidden=false;el.className="sync "+state;$("syncTxt").textContent=txt}
 function remote(method,path,body){
@@ -286,19 +289,19 @@ function fromMirror(){
   S.final={play:(m.final||{}).play||null,food:(m.final||{}).food||null};
   render();if(!$("sheet").hidden)renderSheet();
 }
-function getCode(){try{return localStorage.getItem(CODE_KEY)||""}catch(e){return ""}}
+function getRoom(){try{const r=localStorage.getItem(ROOM_KEY)||"";return /^[0-9a-f]{64}$/.test(r)?r:""}catch(e){return ""}}
 function getRole(){try{const r=localStorage.getItem(ROLE_KEY);return r==="me"||r==="her"?r:""}catch(e){return ""}}
 function paintRole(){document.querySelectorAll("#rolePick button").forEach(b=>b.classList.toggle("on",b.dataset.r===pickRole))}
 const roleName=r=>r==="me"?"나":"여자친구";
-function askCode(){$("codeErr").textContent="";$("codeInput").value="";$("codeInput").placeholder=getCode()?"비워두면 지금 코드 그대로 써":"예: 우리첫카페0412곰돌이";pickRole=getRole();paintRole();$("codeSheet").hidden=false;setTimeout(()=>$("codeInput").focus(),50)}
+function askCode(){$("codeErr").textContent="";$("codeInput").value="";$("codeInput").placeholder=getRoom()?"비워두면 지금 코드 그대로 써":"8글자 이상, 둘만 아는 걸로";pickRole=getRole();paintRole();$("codeSheet").hidden=false;setTimeout(()=>$("codeInput").focus(),50)}
 async function connect(){
   if(!DB_URL)return;
-  const code=getCode(),role=getRole();
+  const room=getRoom(),role=getRole();
   $("codeChange").hidden=false;
-  if(!code||!role){setSync("wait","아직 연결 안 됨 (이 폰에만 저장)");askCode();return}
+  if(!room||!role){setSync("wait","아직 연결 안 됨 (이 폰에만 저장)");askCode();return}
   if(es)es.close();
   S.who=role;document.querySelector(".who").hidden=true;render();
-  ROOT=DB_URL.replace(/\/+$/,"")+"/date/rooms/"+await roomPath(code);
+  ROOT=DB_URL.replace(/\/+$/,"")+"/date/rooms/"+room;
   mirror={};
   setSync("wait","연결 중…");
   es=new EventSource(ROOT+".json");
@@ -394,11 +397,19 @@ if(!DB_URL&&!Object.keys(S.sel).length){
   [["play","전시회",1,1],["play","방탈출",1,0],["play","한강 피크닉",0,1],["food","파스타",1,1],["food","곱창",1,0],["food","초밥",1,1],["food","디저트 카페",0,1]]
   .forEach(([t,n,m,h])=>S.sel[k(t,n)]={me:!!m,her:!!h});
 }
-$("codeForm").onsubmit=e=>{
-  e.preventDefault();const v=$("codeInput").value.trim()||getCode();
-  if(v.length<4){$("codeErr").textContent="코드는 4글자 이상으로 정해줘!";return}
+$("codeForm").onsubmit=async e=>{
+  e.preventDefault();
+  const v=$("codeInput").value.trim();
+  if(!v&&!getRoom()){$("codeErr").textContent="커플 코드를 넣어줘!";return}
+  if(v&&[...v].length<8){$("codeErr").textContent="코드는 8글자 이상으로 정해줘!";return}
   if(!pickRole){$("codeErr").textContent="이 폰이 누구 건지 골라줘!";return}
-  try{localStorage.setItem(CODE_KEY,v);localStorage.setItem(ROLE_KEY,pickRole)}catch(err){}
+  const btn=$("codeForm").querySelector(".cta");btn.disabled=true;$("codeErr").textContent="연결 준비 중…";
+  try{
+    const room=v?await roomPath(v):getRoom();
+    $("codeInput").value="";
+    localStorage.setItem(ROOM_KEY,room);localStorage.setItem(ROLE_KEY,pickRole);
+  }catch(err){$("codeErr").textContent="이 브라우저에서는 연결할 수 없어. 다른 브라우저로 열어줘!";btn.disabled=false;return}
+  btn.disabled=false;$("codeErr").textContent="";
   $("codeSheet").hidden=true;connect();
 };
 $("codeLater").onclick=()=>{$("codeSheet").hidden=true};
